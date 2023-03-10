@@ -4,7 +4,7 @@ use ethereum_consensus::{
     builder::ValidatorRegistration,
     clock::get_current_unix_time_in_secs,
     crypto::SecretKey,
-    primitives::{BlsPublicKey, Slot, U256},
+    primitives::{BlsPublicKey, Slot, U256, Root},
     state_transition::Context,
 };
 use mev_build_rs::NullBuilder;
@@ -62,6 +62,7 @@ fn validate_signed_block(
     signed_block: &mut SignedBlindedBeaconBlock,
     public_key: &BlsPublicKey,
     local_payload: &mut ExecutionPayload,
+    root: Root,
     context: &Context,
 ) -> Result<(), Error> {
     let local_block_hash = local_payload.block_hash();
@@ -75,8 +76,7 @@ fn validate_signed_block(
     // verify slot is timely
     // verify proposer_index is correct
     // verify parent_root matches
-    // TODO: use real root value
-    let root = Default::default();
+
     Ok(signed_block.verify_signature(public_key, root, context)?)
 }
 
@@ -94,6 +94,7 @@ impl Deref for Relay {
 pub struct Inner {
     secret_key: SecretKey,
     public_key: BlsPublicKey,
+    genesis_validators_root: Root,
     builder: NullBuilder,
     validator_registry: ValidatorRegistry,
     context: Arc<Context>,
@@ -106,7 +107,7 @@ struct State {
 }
 
 impl Relay {
-    pub fn new(beacon_node: Client, context: Arc<Context>) -> Self {
+    pub fn new(beacon_node: Client, genesis_validators_root: Root, context: Arc<Context>) -> Self {
         let key_bytes = [1u8; 32];
         let secret_key = SecretKey::try_from(key_bytes.as_slice()).unwrap();
         let public_key = secret_key.public_key();
@@ -114,6 +115,7 @@ impl Relay {
         let inner = Inner {
             secret_key,
             public_key,
+            genesis_validators_root,
             builder: NullBuilder,
             validator_registry,
             context,
@@ -221,7 +223,7 @@ impl BlindedBlockProvider for Relay {
             state.execution_payloads.remove(&bid_request).ok_or(Error::UnknownBid)?
         };
 
-        validate_signed_block(signed_block, &bid_request.public_key, &mut payload, &self.context)?;
+        validate_signed_block(signed_block, &bid_request.public_key, &mut payload, self.genesis_validators_root, &self.context)?;
 
         Ok(payload)
     }
